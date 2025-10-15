@@ -15,9 +15,10 @@ export class ClaudeService {
   /**
    * Build system prompt with context awareness
    * @param {Object} context - Context object with org, repo, path, viewType
+   * @param {string|null} editorContent - Current editor content if in editor mode
    * @returns {string} System prompt
    */
-  buildSystemPrompt(context) {
+  buildSystemPrompt(context, editorContent = null) {
     let prompt = `You are DA Agent, an AI assistant specialized in helping content authors manage documents in the DA (Document Authoring) platform.`;
 
     if (context?.org && context?.repo) {
@@ -32,17 +33,36 @@ export class ClaudeService {
       if (context.viewType === 'editor') {
         prompt += `\n\n=== EDITOR MODE ===`;
         prompt += `\nThe user is currently EDITING the document at path "/${context.path || ''}".`;
-        prompt += `\n\nYour capabilities in Editor Mode:`;
-        prompt += `\n- Read the current document using da_admin_get_source with path="${context.path}" and ext="html" or "json"`;
-        prompt += `\n- Edit and update the document content using da_admin_create_source (this OVERWRITES the file)`;
-        prompt += `\n- Analyze, add, remove, or modify sections within the document`;
-        prompt += `\n- Help with HTML or JSON content formatting`;
-        prompt += `\n\nIMPORTANT: Focus on CONTENT-LEVEL operations within THIS document.`;
-        prompt += `\nWhen the user asks to modify something, ALWAYS:`;
-        prompt += `\n1. Read the current content first (da_admin_get_source)`;
-        prompt += `\n2. Make the requested changes`;
-        prompt += `\n3. Save the modified content back (da_admin_create_source)`;
-        prompt += `\n\nUse path="${context.path}" automatically - never ask for it!`;
+        
+        if (editorContent) {
+          prompt += `\n\n=== CURRENT DOCUMENT CONTENT (PROVIDED) ===`;
+          prompt += `\nThe current editor content has been extracted from the live ProseMirror editor:`;
+          prompt += `\n\`\`\`html\n${editorContent}\n\`\`\``;
+          prompt += `\n\n⚠️ CRITICAL EDITING INSTRUCTIONS ⚠️`;
+          prompt += `\n\nYou MUST follow these rules when editing:`;
+          prompt += `\n1. The content above is already in memory - DO NOT call da_admin_get_source`;
+          prompt += `\n2. When modifying content, ONLY use da_editor_update_content tool`;
+          prompt += `\n3. DO NOT use da_admin_create_source - it's the wrong tool for editor mode`;
+          prompt += `\n4. Always return the COMPLETE modified HTML document`;
+          prompt += `\n5. Keep the structure: <body><header></header><main>...</main><footer></footer></body>`;
+          prompt += `\n\nWorkflow for editing:`;
+          prompt += `\n1. Read and analyze the provided content above`;
+          prompt += `\n2. Make your changes to the HTML in memory`;
+          prompt += `\n3. Call da_editor_update_content with the complete modified HTML`;
+          prompt += `\n\nThe editor will update instantly without API calls or page reloads.`;
+        } else {
+          prompt += `\n\nYour capabilities in Editor Mode:`;
+          prompt += `\n- Read the current document using da_admin_get_source with path="${context.path}" and ext="html" or "json"`;
+          prompt += `\n- Edit and update the document content using da_admin_create_source (this OVERWRITES the file)`;
+          prompt += `\n- Analyze, add, remove, or modify sections within the document`;
+          prompt += `\n- Help with HTML or JSON content formatting`;
+          prompt += `\n\nIMPORTANT: Focus on CONTENT-LEVEL operations within THIS document.`;
+          prompt += `\nWhen the user asks to modify something, ALWAYS:`;
+          prompt += `\n1. Read the current content first (da_admin_get_source)`;
+          prompt += `\n2. Make the requested changes`;
+          prompt += `\n3. Save the modified content back (da_admin_create_source)`;
+          prompt += `\n\nUse path="${context.path}" automatically - never ask for it!`;
+        }
       } else if (context.viewType === 'explorer') {
         prompt += `\n\n=== EXPLORER MODE ===`;
         prompt += `\nThe user is browsing files at the FOLDER level in "${context.path ? '/' + context.path : '/ (root)'}".`;
@@ -74,11 +94,12 @@ export class ClaudeService {
    * Stream chat response from Claude with tool use support
    * @param {string} message - User message
    * @param {Object} context - Context object
+   * @param {string|null} editorContent - Current editor content if in editor mode
    * @param {Array} tools - Available tools
    * @param {Object} callbacks - Callback functions (onToken, onStatus, onToolCall)
    */
-  async streamChat(message, context, tools, callbacks) {
-    const systemPrompt = this.buildSystemPrompt(context);
+  async streamChat(message, context, editorContent, tools, callbacks) {
+    const systemPrompt = this.buildSystemPrompt(context, editorContent);
     const conversationMessages = [{ role: 'user', content: message }];
 
     // Tool use loop - continue until Claude is done or max iterations

@@ -6,7 +6,9 @@ export class MCPService {
     this.client = null;
     this.transport = null;
     this.context = null;
+    this.editorContent = null; // Current editor content (when in editor mode)
     this.contentModified = false;
+    this.editorUpdate = null; // Stores editor updates to send back to frontend
     this.availableTools = [];
     
     // Get DA Admin auth token from environment
@@ -98,15 +100,45 @@ export class MCPService {
         },
       },
     ];
+    
+    // Editor-specific tool (added dynamically when editor content is available)
+    this.editorTool = {
+      name: 'da_editor_update_content',
+      description: 'Updates the content in the ProseMirror editor directly (use ONLY in editor mode when content is already provided). This is more efficient than da_admin_create_source.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          content: { 
+            type: 'string', 
+            description: 'The complete HTML content to set in the editor (must include <body><header></header><main>...</main><footer></footer></body> structure)' 
+          },
+        },
+        required: ['content'],
+      },
+    };
   }
 
   /**
    * Initialize MCP service with context
    * @param {Object} context - Context object with org, repo, path
+   * @param {string|null} editorContent - Current editor content if in editor mode
    */
-  async initialize(context) {
+  async initialize(context, editorContent = null) {
     this.context = context;
+    this.editorContent = editorContent;
     this.contentModified = false;
+    this.editorUpdate = null;
+    
+    // Remove editor tool from previous sessions
+    this.availableTools = this.availableTools.filter(t => t.name !== 'da_editor_update_content');
+    
+    // Add editor tool if we have editor content
+    if (editorContent && context?.viewType === 'editor') {
+      console.log('🔧 Adding da_editor_update_content tool (editor content provided)');
+      this.availableTools.push(this.editorTool);
+    } else {
+      console.log('📝 Standard tools only (no editor content)');
+    }
 
     // TODO: Connect to actual MCP server if running separately
     // For now, we use direct API calls to DA
@@ -135,15 +167,38 @@ export class MCPService {
           return await this.listSources(input);
         
         case 'da_admin_get_source':
+          // If we have editor content and we're in editor mode, return it instead of fetching
+          if (this.editorContent && this.context?.viewType === 'editor') {
+            console.log('Returning editor content instead of fetching from API');
+            return this.editorContent;
+          }
           return await this.getSource(input);
         
         case 'da_admin_create_source':
+          // Warn if this is being called in editor mode when editor content was provided
+          if (this.editorContent && this.context?.viewType === 'editor') {
+            console.warn('⚠️ WARNING: da_admin_create_source called in editor mode with content available!');
+            console.warn('   Claude should be using da_editor_update_content instead.');
+            console.warn('   This will make an unnecessary API call and reload the page.');
+          }
           this.contentModified = true;
           return await this.createSource(input);
         
         case 'da_admin_delete_source':
           this.contentModified = true;
           return await this.deleteSource(input);
+        
+        case 'da_editor_update_content':
+          // Store the editor update to send back to frontend
+          console.log('Storing editor update for client-side application');
+          this.editorUpdate = {
+            content: input.content,
+          };
+          this.contentModified = true;
+          return { 
+            success: true, 
+            message: 'Editor content will be updated in the browser' 
+          };
         
         default:
           throw new Error(`Unknown tool: ${toolName}`);
@@ -160,6 +215,10 @@ export class MCPService {
    */
   hasModifiedContent() {
     return this.contentModified;
+  }
+  
+  getEditorUpdate() {
+    return this.editorUpdate;
   }
 
   /**

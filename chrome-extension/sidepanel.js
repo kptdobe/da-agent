@@ -13,6 +13,7 @@ const contextBadge = document.getElementById('contextBadge');
 let currentContext = null;
 let isProcessing = false;
 let currentTabId = null;
+let currentEditorTabId = null; // Store the tab ID of the editor page
 let chatHistoryByTab = {}; // Store chat history per tab
 
 // Helper function to extract context from URL (fallback when content script doesn't load)
@@ -204,10 +205,14 @@ async function requestContext() {
   try {
     const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
     if (tabs[0]) {
+      // Store the tab ID for later use
+      currentEditorTabId = tabs[0].id;
+      
       // Check if it's a DA page
       const isDAPage = tabs[0].url.includes('da.live') || tabs[0].url.includes('localhost:3000');
       if (!isDAPage) {
         updateContext(null);
+        currentEditorTabId = null;
         return;
       }
       
@@ -304,6 +309,96 @@ function updateWelcomeMessage(viewType) {
   }
 }
 
+/**
+ * Apply an editor update
+ * @param {string} content - New content to set in the editor
+ * @returns {Promise<boolean>} Success status
+ */
+async function applyEditorUpdate(content) {
+  try {
+    // Use the stored tab ID
+    if (!currentEditorTabId) {
+      console.error('No editor tab ID available');
+      return false;
+    }
+    
+    return new Promise((resolve) => {
+      chrome.tabs.sendMessage(currentEditorTabId, { 
+        type: 'SET_EDITOR_CONTENT',
+        content,
+        requestId: Date.now().toString()
+      }, (response) => {
+        if (chrome.runtime.lastError) {
+          console.error('Failed to update editor:', chrome.runtime.lastError.message);
+          resolve(false);
+        } else {
+          resolve(response?.success || false);
+        }
+      });
+      
+      // Timeout after 2 seconds
+      setTimeout(() => resolve(false), 2000);
+    });
+  } catch (error) {
+    console.error('Error updating editor:', error);
+    return false;
+  }
+}
+
+/**
+ * Get editor content if we're in editor mode
+ * @returns {Promise<string|null>} Editor content or null
+ */
+async function getEditorContent() {
+  if (!currentContext || currentContext.viewType !== 'editor') {
+    return null;
+  }
+  
+  // Use the stored tab ID from when we got the context
+  if (!currentEditorTabId) {
+    console.error('No editor tab ID stored');
+    return null;
+  }
+  
+  try {
+    // Verify the tab still exists
+    try {
+      await chrome.tabs.get(currentEditorTabId);
+    } catch (tabError) {
+      console.error('Tab no longer exists:', tabError.message);
+      return null;
+    }
+    
+    return new Promise((resolve) => {
+      const requestId = Date.now().toString();
+      
+      // Set up timeout
+      const timeoutId = setTimeout(() => {
+        console.error('Timeout waiting for editor content - content script may not be responding');
+        resolve(null);
+      }, 5000);
+      
+      // Send message to content script to get editor content
+      chrome.tabs.sendMessage(currentEditorTabId, { 
+        type: 'GET_EDITOR_CONTENT',
+        requestId
+      }, (response) => {
+        clearTimeout(timeoutId);
+        
+        if (chrome.runtime.lastError) {
+          console.error('Failed to get editor content:', chrome.runtime.lastError.message);
+          resolve(null);
+        } else {
+          resolve(response?.content || null);
+        }
+      });
+    });
+  } catch (error) {
+    console.error('Error getting editor content:', error);
+    return null;
+  }
+}
+
 async function handleSend() {
   const message = chatInput.value.trim();
   
@@ -327,6 +422,18 @@ async function handleSend() {
   setProcessing(true, 'Thinking...');
   
   try {
+    // Get editor content if in editor mode
+    let editorContent = null;
+    
+    if (currentContext?.viewType === 'editor') {
+      setProcessing(true, 'Reading editor content...');
+      editorContent = await getEditorContent();
+      
+      if (!editorContent) {
+        console.warn('Failed to get editor content, will use API fallback');
+      }
+    }
+    
     // Send to backend
     const response = await fetch(`${BACKEND_URL}/api/chat`, {
       method: 'POST',
@@ -336,6 +443,7 @@ async function handleSend() {
       body: JSON.stringify({
         message,
         context: currentContext,
+        editorContent, // Include editor content if available
       }),
     });
     
@@ -373,8 +481,12 @@ async function handleSend() {
             } else if (data.type === 'status') {
               statusText.textContent = data.message;
             } else if (data.type === 'complete') {
-              // Refresh the page if action was performed
-              if (data.shouldRefresh) {
+              // Apply editor update if provided
+              if (data.editorUpdate && data.editorUpdate.content) {
+                setProcessing(true, 'Updating editor...');
+                await applyEditorUpdate(data.editorUpdate.content);
+              } else if (data.shouldRefresh) {
+                // Refresh the page if action was performed (for non-editor operations)
                 setTimeout(() => {
                   chrome.runtime.sendMessage({ type: 'REFRESH_PAGE' });
                 }, 1000);

@@ -19,12 +19,18 @@ function getServices() {
 
 router.post('/', async (req, res) => {
   try {
-    const { message, context } = req.body;
+    const { message, context, editorContent } = req.body;
 
     if (!message) {
       res.status(400).json({ error: 'Message is required' });
       return;
     }
+    
+    // Log incoming request details
+    console.log(`\n📨 Chat request received`);
+    console.log(`   Context: ${context?.org}/${context?.repo}/${context?.path || ''}`);
+    console.log(`   View type: ${context?.viewType || 'unknown'}`);
+    console.log(`   Editor content provided: ${editorContent ? 'YES (' + editorContent.length + ' chars)' : 'NO'}`);
 
     // Set up SSE (Server-Sent Events) for streaming
     res.setHeader('Content-Type', 'text/event-stream');
@@ -40,18 +46,22 @@ router.post('/', async (req, res) => {
       // Get service instances (lazy initialization)
       const { claudeService, mcpService } = getServices();
 
-      // Initialize MCP service with context
+      // Initialize MCP service with context and editor content
       if (context?.org && context?.repo) {
-        await mcpService.initialize(context);
+        await mcpService.initialize(context, editorContent);
       }
 
       // Get tools from MCP service
       const tools = mcpService.getTools();
+      
+      // Log tool availability for debugging
+      console.log(`📦 Available tools: ${tools.map(t => t.name).join(', ')}`);
 
       // Stream response from Claude
       await claudeService.streamChat(
         message,
         context,
+        editorContent, // Pass editor content to Claude
         tools,
         {
           onToken: (token) => {
@@ -69,9 +79,10 @@ router.post('/', async (req, res) => {
       
       // Check if any content modification was made
       const shouldRefresh = mcpService.hasModifiedContent();
+      const editorUpdate = mcpService.getEditorUpdate();
 
-      // Send completion event
-      sendEvent('complete', { shouldRefresh });
+      // Send completion event with optional editor update
+      sendEvent('complete', { shouldRefresh, editorUpdate });
 
     } catch (error) {
       console.error('\n❌ Error processing chat:');

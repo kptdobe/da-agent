@@ -36,6 +36,16 @@
   "action": {
     "default_title": "Open DA Agent"
   },
-  "options_page": "diagnostic.html"
+  "options_page": "diagnostic.html",
+  "web_accessible_resources": [
+    {
+      "resources": ["editor-bridge.js"],
+      "matches": [
+        "http://localhost:3000/*",
+        "https://da.live/*",
+        "https://*.da.live/*"
+      ]
+    }
+  ]
 }
 
