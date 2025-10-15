@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DA Agent</title>
+  <link rel="stylesheet" href="sidepanel.css">
+</head>
+<body>
+  <div class="chat-container">
+    <div class="chat-header">
+      <h1>🤖 DA Agent</h1>
+      <div class="context-info" id="contextInfo">
+        <span class="context-badge" id="contextBadge">Loading context...</span>
+        <button id="refreshContext" class="refresh-button" title="Refresh context">🔄</button>
+      </div>
+    </div>
+    
+    <div class="chat-messages" id="chatMessages">
+      <div class="message assistant" id="welcomeMessage">
+        <div class="message-content">
+          <p>Hi! I'm your DA Agent.</p>
+          <p><strong>💡 Tip:</strong> Make sure you're on a DA page and the badge above shows your current location.</p>
+          <p>What would you like to do?</p>
+        </div>
+      </div>
+    </div>
+    
+    <div class="chat-input-container">
+      <div class="status-indicator" id="statusIndicator" style="display: none;">
+        <div class="spinner"></div>
+        <span id="statusText">Thinking...</span>
+      </div>
+      <div class="input-wrapper">
+        <textarea 
+          id="chatInput" 
+          placeholder="Ask me to create, edit, or manage your content..."
+          rows="1"
+        ></textarea>
+        <button id="sendButton" class="send-button" title="Send message">
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+            <path d="M2 10L18 2L10 18L8 11L2 10Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+  </div>
+  
+  <script src="sidepanel.js"></script>
+</body>
+</html>
+

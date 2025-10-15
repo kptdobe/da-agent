@@ -1,0 +1,38 @@
+{
+  "name": "da-agent-backend",
+  "version": "1.0.0",
+  "description": "Backend server for DA Agent - AI-powered Document Authoring assistant",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "dev": "./start.sh",
+    "dev:direct": "node --watch src/index.js",
+    "start": "node src/index.js",
+    "lint": "eslint src --ext .js",
+    "format": "prettier --write \"src/**/*.js\"",
+    "kill-port": "lsof -ti:${PORT:-3101} | xargs kill -9 2>/dev/null || echo 'No process found'"
+  },
+  "keywords": [
+    "ai",
+    "anthropic",
+    "claude",
+    "mcp",
+    "document-authoring"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.32.1",
+    "@modelcontextprotocol/sdk": "^1.0.4",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2"
+  },
+  "devDependencies": {
+    "eslint": "^9.17.0",
+    "prettier": "^3.4.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

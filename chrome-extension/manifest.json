@@ -1,0 +1,41 @@
+{
+  "manifest_version": 3,
+  "name": "DA Agent",
+  "version": "1.0.0",
+  "description": "AI-powered chat assistant for Document Authoring",
+  "permissions": [
+    "sidePanel",
+    "activeTab",
+    "storage",
+    "scripting",
+    "tabs"
+  ],
+  "host_permissions": [
+    "http://localhost:3000/*",
+    "https://da.live/*",
+    "https://*.da.live/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "http://localhost:3000/*",
+        "https://da.live/*",
+        "https://*.da.live/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_end",
+      "all_frames": false
+    }
+  ],
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
+  "action": {
+    "default_title": "Open DA Agent"
+  },
+  "options_page": "diagnostic.html"
+}
+
