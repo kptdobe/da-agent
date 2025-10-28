@@ -1,0 +1,661 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Y-ProseMirror Test Page</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      margin: 0;
+      padding: 20px;
+      background: #f5f5f5;
+    }
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+    .header {
+      background: white;
+      padding: 20px;
+      border-radius: 8px;
+      margin-bottom: 20px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    .header h1 {
+      margin: 0 0 10px 0;
+      color: #333;
+    }
+    .status {
+      display: flex;
+      gap: 20px;
+      font-size: 14px;
+    }
+    .status-item {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #ccc;
+    }
+    .status-dot.connected { background: #22c55e; }
+    .status-dot.synced { background: #3b82f6; }
+    
+    .editor-container {
+      background: white;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      min-height: 500px;
+    }
+    
+    .ProseMirror {
+      position: relative;
+      white-space: pre-wrap;
+      word-wrap: break-word;
+      outline: none;
+      padding: 20px;
+      min-height: 400px;
+      border: 1px solid #e5e7eb;
+      border-radius: 4px;
+      background: white;
+    }
+    
+    .ProseMirror p {
+      margin: 1em 0;
+    }
+    
+    .ProseMirror h1 { font-size: 2em; margin: 0.67em 0; font-weight: bold; }
+    .ProseMirror h2 { font-size: 1.5em; margin: 0.75em 0; font-weight: bold; }
+    .ProseMirror h3 { font-size: 1.17em; margin: 0.83em 0; font-weight: bold; }
+    
+    .ProseMirror ul, .ProseMirror ol {
+      padding-left: 30px;
+    }
+    
+    .ProseMirror table {
+      border-collapse: collapse;
+    }
+    
+    .ProseMirror td, .ProseMirror th {
+      border: 1px solid #ddd;
+      padding: 8px;
+    }
+    
+    /* Y-prosemirror cursor styles */
+    .ProseMirror-yjs-cursor {
+      position: absolute;
+      border-left: 2px solid;
+      border-color: inherit;
+      height: 1.2em;
+      pointer-events: none;
+    }
+    
+    .ProseMirror-yjs-selection {
+      background-color: inherit;
+      opacity: 0.3;
+    }
+    
+    .controls {
+      background: white;
+      padding: 20px;
+      border-radius: 8px;
+      margin-top: 20px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    
+    .controls h3 {
+      margin: 0 0 15px 0;
+    }
+    
+    .controls h4 {
+      margin: 0 0 10px 0;
+      color: #374151;
+      font-size: 16px;
+    }
+    
+    .control-group {
+      margin-bottom: 15px;
+    }
+    
+    .control-group label {
+      display: block;
+      margin-bottom: 5px;
+      font-weight: 500;
+    }
+    
+    .control-group input {
+      width: 100%;
+      padding: 8px;
+      border: 1px solid #e5e7eb;
+      border-radius: 4px;
+      font-family: monospace;
+    }
+    
+    .control-group button {
+      padding: 10px 20px;
+      background: #3b82f6;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-weight: 500;
+    }
+    
+    .control-group button:hover {
+      background: #2563eb;
+    }
+    
+    .control-group button[style*="background: #8b5cf6"]:hover {
+      background: #7c3aed !important;
+    }
+    
+    .control-group button[style*="background: #ef4444"]:hover {
+      background: #dc2626 !important;
+    }
+    
+    .log {
+      background: #1f2937;
+      color: #e5e7eb;
+      padding: 15px;
+      border-radius: 4px;
+      font-family: monospace;
+      font-size: 12px;
+      max-height: 200px;
+      overflow-y: auto;
+      margin-top: 15px;
+    }
+    
+    .log-entry {
+      margin-bottom: 5px;
+    }
+    
+    .log-entry.error { color: #ef4444; }
+    .log-entry.success { color: #22c55e; }
+    .log-entry.info { color: #3b82f6; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>Y-ProseMirror Test Page</h1>
+      <div class="status">
+        <div class="status-item">
+          <div class="status-dot" id="connection-dot"></div>
+          <span id="connection-status">Disconnected</span>
+        </div>
+        <div class="status-item">
+          <div class="status-dot" id="sync-dot"></div>
+          <span id="sync-status">Not synced</span>
+        </div>
+        <div class="status-item">
+          <span id="users-status">0 users</span>
+        </div>
+      </div>
+    </div>
+    
+    <div class="editor-container">
+      <div id="editor"></div>
+    </div>
+    
+    <div class="controls">
+      <h3>Test Operations</h3>
+      
+      <!-- Insert Content -->
+      <div style="margin-bottom: 30px; padding-bottom: 20px; border-bottom: 1px solid #e5e7eb;">
+        <h4 style="margin: 0 0 10px 0;">Insert Content</h4>
+        
+        <div class="control-group">
+          <label>Content:</label>
+          <input type="text" id="insert-text" placeholder="Text to insert" onkeypress="if(event.key==='Enter') insertContent()">
+        </div>
+        
+        <div class="control-group">
+          <label>Type:</label>
+          <select id="insert-type" style="width: 100%; padding: 8px; border: 1px solid #e5e7eb; border-radius: 4px; font-family: inherit;">
+            <option value="paragraph">Paragraph</option>
+            <option value="heading1">Heading 1</option>
+            <option value="heading2">Heading 2</option>
+            <option value="heading3">Heading 3</option>
+            <option value="heading4">Heading 4</option>
+            <option value="heading5">Heading 5</option>
+            <option value="heading6">Heading 6</option>
+          </select>
+        </div>
+        
+        <div class="control-group">
+          <button onclick="insertContent()">Insert at Cursor</button>
+        </div>
+      </div>
+      
+      <!-- Find & Position Cursor -->
+      <div style="margin-bottom: 30px; padding-bottom: 20px; border-bottom: 1px solid #e5e7eb;">
+        <h4 style="margin: 0 0 10px 0;">Find & Position Cursor</h4>
+        
+        <div class="control-group">
+          <label>Find Text:</label>
+          <input type="text" id="find-cursor-text" placeholder="Text to find" onkeypress="if(event.key==='Enter') findAndPositionCursor()">
+        </div>
+        
+        <div class="control-group">
+          <button onclick="findAndPositionCursor()" style="background: #8b5cf6;">Find & Select</button>
+        </div>
+      </div>
+      
+      <!-- Delete Content -->
+      <div style="margin-bottom: 30px; padding-bottom: 20px; border-bottom: 1px solid #e5e7eb;">
+        <h4 style="margin: 0 0 10px 0;">Delete Content</h4>
+        
+        <div class="control-group">
+          <button onclick="deleteCurrentNode()" style="background: #ef4444;">Delete Current Block</button>
+        </div>
+      </div>
+      
+      <!-- Replace Text -->
+      <div>
+        <h4 style="margin: 0 0 10px 0;">Replace Text</h4>
+        
+        <div class="control-group">
+          <label>Find Text:</label>
+          <input type="text" id="find-text" placeholder="Text to find (will be stripped of HTML)" onkeypress="if(event.key==='Enter') testReplace()">
+        </div>
+        
+        <div class="control-group">
+          <label>Replace With:</label>
+          <input type="text" id="replace-text" placeholder="Replacement text" onkeypress="if(event.key==='Enter') testReplace()">
+        </div>
+        
+        <div class="control-group">
+          <button onclick="testReplace()">Replace Text</button>
+        </div>
+      </div>
+      
+      <div class="log" id="log"></div>
+    </div>
+  </div>
+  
+  <!-- Load complete editor stack (Y.js + ProseMirror + y-prosemirror) -->
+  <script src="chrome-extension/lib/prosemirror-bundle.js"></script>
+  
+  <script>
+    // Parse query parameters
+    const params = new URLSearchParams(window.location.search);
+    const org = params.get('org') || 'kptdobe';
+    const repo = params.get('repo') || 'daplayground';
+    const path = params.get('path') || 'agent/surf';
+    const collabUrl = params.get('collab') || 'ws://localhost:4711';
+    const adminUrl = params.get('admin') || 'http://localhost:8787';
+    
+    const docUrl = `${adminUrl}/source/${org}/${repo}/${path}.html`;
+    
+    // Logging
+    function log(message, type = 'info') {
+      const logEl = document.getElementById('log');
+      const entry = document.createElement('div');
+      entry.className = `log-entry ${type}`;
+      entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+      logEl.appendChild(entry);
+      logEl.scrollTop = logEl.scrollHeight;
+      console.log(`[${type}] ${message}`);
+    }
+    
+    // State
+    let editor = null;
+    let editorYdoc = null;
+    let editorProvider = null;
+    let editorAwareness = null;
+    
+    // Initialize
+    async function init() {
+      log(`Connecting to: ${docUrl}`, 'info');
+      log(`Collab server: ${collabUrl}`, 'info');
+      
+      // Create Y.js document
+      editorYdoc = new window.Y.Doc();
+      
+      // Connect to WebSocket
+      editorProvider = new window.WebsocketProvider(collabUrl, docUrl, editorYdoc);
+      editorAwareness = editorProvider.awareness;
+      
+      // Set awareness
+      editorAwareness.setLocalStateField('user', {
+        color: '#EF4444',
+        name: 'Test Editor',
+        id: `test-editor-${editorProvider.awareness.clientID}`
+      });
+      log('Set awareness: Test Editor', 'success');
+      
+      // Listen for connection status
+      editorProvider.on('status', ({ status }) => {
+        const dot = document.getElementById('connection-dot');
+        const text = document.getElementById('connection-status');
+        if (status === 'connected') {
+          dot.classList.add('connected');
+          text.textContent = 'Connected';
+          log('Connected to collab server', 'success');
+        } else {
+          dot.classList.remove('connected');
+          text.textContent = 'Disconnected';
+          log('Disconnected from collab server', 'error');
+        }
+      });
+      
+      // Listen for sync status
+      editorProvider.on('sync', (isSynced) => {
+        const dot = document.getElementById('sync-dot');
+        const text = document.getElementById('sync-status');
+        if (isSynced) {
+          dot.classList.add('synced');
+          text.textContent = 'Synced';
+          log('Document synced', 'success');
+        }
+      });
+      
+      // Wait for sync
+      await new Promise((resolve) => {
+        if (editorProvider.synced) {
+          resolve();
+        } else {
+          editorProvider.on('sync', (isSynced) => {
+            if (isSynced) {
+              resolve();
+            }
+          });
+        }
+      });
+      
+      // Create ProseMirror editor
+      const editorDiv = document.getElementById('editor');
+      const yXmlFragment = editorYdoc.getXmlFragment('prosemirror');
+      
+      // Use da.live's schema for 1:1 compatibility
+      const schema = window.prosemirror.getSchema();
+      log('Using da.live schema', 'success');
+      
+      const state = window.prosemirror.EditorState.create({
+        schema,
+        plugins: [
+          window.yProsemirror.ySyncPlugin(yXmlFragment),
+          window.yProsemirror.yCursorPlugin(editorAwareness),
+          window.yProsemirror.yUndoPlugin(),
+        ]
+      });
+      
+      editor = new window.prosemirror.EditorView(editorDiv, {
+        state,
+        editable: () => true
+      });
+      
+      log('ProseMirror editor initialized', 'success');
+      
+      // Wait for sync, then make editable (like da-live does)
+      const handleSynced = (isSynced) => {
+        if (isSynced) {
+          // Find the actual .ProseMirror element and make it editable
+          const pm = editorDiv.querySelector('.ProseMirror');
+          if (pm) {
+            pm.contentEditable = 'true';
+            pm.focus();
+            log('Editor is now editable and focused', 'success');
+          } else {
+            log('ERROR: Could not find .ProseMirror element', 'error');
+          }
+          editorProvider.off('synced', handleSynced);
+        }
+      };
+      editorProvider.on('synced', handleSynced);
+      
+      // Monitor awareness
+      editorAwareness.on('change', () => {
+        const states = editorAwareness.getStates();
+        const userCount = states.size - 1; // Exclude self
+        document.getElementById('users-status').textContent = `${userCount} other user(s)`;
+      });
+    }
+    
+    // Find text and position cursor
+    function findAndPositionCursor() {
+      const searchText = document.getElementById('find-cursor-text').value;
+      
+      if (!searchText) {
+        log('Please enter text to find', 'error');
+        return;
+      }
+      
+      if (!editor) {
+        log('Editor not initialized', 'error');
+        return;
+      }
+      
+      const { state } = editor;
+      const { doc } = state;
+      
+      // Walk through document and find the text
+      const findTextInDoc = (doc, text) => {
+        let result = null;
+        
+        doc.descendants((node, pos) => {
+          if (result) return false; // Stop if found
+          
+          if (node.isText && node.text) {
+            const index = node.text.indexOf(text);
+            if (index >= 0) {
+              result = {
+                from: pos + index,
+                to: pos + index + text.length
+              };
+              return false; // Stop searching
+            }
+          }
+        });
+        
+        return result;
+      };
+      
+      const result = findTextInDoc(doc, searchText);
+      if (!result) {
+        log(`Text not found: "${searchText}"`, 'error');
+        return;
+      }
+      
+      const { from, to } = result;
+      
+      try {
+        // Set selection at the found text
+        editor.focus();
+        
+        const TextSelection = state.selection.constructor;
+        const tr = state.tr.setSelection(TextSelection.create(state.doc, from, to));
+        editor.dispatch(tr);
+        
+        log(`Found at position ${from}-${to}: "${searchText}"`, 'success');
+        
+        // Scroll to the selection (if needed)
+        editor.dom.querySelector('.ProseMirror')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      } catch (err) {
+        log(`Error positioning cursor: ${err.message}`, 'error');
+        console.error(err);
+      }
+    }
+    
+    // Delete current block node at cursor
+    function deleteCurrentNode() {
+      if (!editor) {
+        log('Editor not initialized', 'error');
+        return;
+      }
+      
+      const { state } = editor;
+      const { from } = state.selection;
+      
+      try {
+        // Resolve the position to get the node
+        const $pos = state.doc.resolve(from);
+        
+        // Find the parent block node (depth 1 is usually the block level)
+        let depth = $pos.depth;
+        let node = null;
+        let nodePos = null;
+        
+        // Walk up to find a block node (paragraph, heading, etc.)
+        while (depth > 0) {
+          const currentNode = $pos.node(depth);
+          if (currentNode.isBlock && currentNode.type.name !== 'doc') {
+            node = currentNode;
+            nodePos = $pos.before(depth);
+            break;
+          }
+          depth--;
+        }
+        
+        if (!node) {
+          log('No block node found at cursor', 'error');
+          return;
+        }
+        
+        // Delete the node
+        const tr = state.tr.delete(nodePos, nodePos + node.nodeSize);
+        editor.dispatch(tr);
+        
+        log(`Deleted ${node.type.name}`, 'success');
+      } catch (err) {
+        log(`Error deleting node: ${err.message}`, 'error');
+        console.error(err);
+      }
+    }
+    
+    // Insert content at cursor position
+    async function insertContent() {
+      const text = document.getElementById('insert-text').value;
+      const type = document.getElementById('insert-type').value;
+      
+      if (!text) {
+        log('Please enter text to insert', 'error');
+        return;
+      }
+      
+      if (!editor) {
+        log('Editor not initialized', 'error');
+        return;
+      }
+      
+      const { state } = editor;
+      const { schema } = state;
+      const { from } = state.selection;
+      
+      try {
+        // Create the appropriate node based on type
+        let node;
+        
+        if (type === 'paragraph') {
+          node = schema.nodes.paragraph.create(null, schema.text(text));
+        } else if (type.startsWith('heading')) {
+          const level = parseInt(type.replace('heading', ''));
+          node = schema.nodes.heading.create({ level }, schema.text(text));
+        }
+        
+        // Insert the node at the current cursor position
+        const tr = state.tr.insert(from, node);
+        editor.dispatch(tr);
+        
+        log(`Inserted ${type}: "${text}"`, 'success');
+        
+        // Clear input
+        document.getElementById('insert-text').value = '';
+      } catch (err) {
+        log(`Error inserting content: ${err.message}`, 'error');
+        console.error(err);
+      }
+    }
+    
+    // Test replace operation
+    async function testReplace() {
+      const findHtml = document.getElementById('find-text').value;
+      const replaceHtml = document.getElementById('replace-text').value;
+      
+      if (!findHtml || !replaceHtml) {
+        log('Please enter both find and replace text', 'error');
+        return;
+      }
+      
+      // Strip HTML tags
+      const tempDiv = document.createElement('div');
+      tempDiv.innerHTML = findHtml;
+      const findText = tempDiv.textContent || tempDiv.innerText || '';
+      
+      tempDiv.innerHTML = replaceHtml;
+      const replaceText = tempDiv.textContent || tempDiv.innerText || '';
+      
+      log(`Searching for: "${findText}"`, 'info');
+      
+      const { state } = editor;
+      const { doc } = state;
+      
+      // Walk through document and find the text
+      const findTextInDoc = (doc, searchText) => {
+        let result = null;
+        
+        doc.descendants((node, pos) => {
+          if (result) return false; // Stop if found
+          
+          if (node.isText && node.text) {
+            const index = node.text.indexOf(searchText);
+            if (index >= 0) {
+              result = {
+                from: pos + index,
+                to: pos + index + searchText.length
+              };
+              return false; // Stop searching
+            }
+          }
+        });
+        
+        return result;
+      };
+      
+      const result = findTextInDoc(doc, findText);
+      if (!result) {
+        log('Text not found in document', 'error');
+        return;
+      }
+      
+      const { from: fromPos, to: toPos } = result;
+      log(`Found at position ${fromPos}-${toPos}`, 'success');
+      
+      // Set selection first (visual feedback)
+      try {
+        editor.focus();
+        
+        const TextSelection = state.selection.constructor;
+        const selectionTr = state.tr.setSelection(TextSelection.create(state.doc, fromPos, toPos));
+        editor.dispatch(selectionTr);
+        
+        // Wait for visual feedback
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
+        // Replace text using current selection
+        const newState = editor.state;
+        const { from, to } = newState.selection;
+        const replaceTr = newState.tr.insertText(replaceText, from, to);
+        editor.dispatch(replaceTr);
+        
+        log('Text replaced successfully!', 'success');
+      } catch (err) {
+        log(`Error: ${err.message}`, 'error');
+      }
+    }
+    
+    // Initialize on load
+    window.addEventListener('DOMContentLoaded', () => {
+      init().catch(err => {
+        log(`Initialization error: ${err.message}`, 'error');
+      });
+    });
+  </script>
+</body>
+</html>
+
