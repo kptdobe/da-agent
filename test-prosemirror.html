@@ -203,7 +203,7 @@
     </div>
     
     <div class="controls">
-      <h3>Test Operations</h3>
+      <h3>Test Operations (Server-Side)</h3>
       
       <!-- Insert Content -->
       <div style="margin-bottom: 30px; padding-bottom: 20px; border-bottom: 1px solid #e5e7eb;">
@@ -261,7 +261,7 @@
         
         <div class="control-group">
           <label>Find Text:</label>
-          <input type="text" id="find-text" placeholder="Text to find (will be stripped of HTML)" onkeypress="if(event.key==='Enter') testReplace()">
+          <input type="text" id="find-text" placeholder="Text to find" onkeypress="if(event.key==='Enter') testReplace()">
         </div>
         
         <div class="control-group">
@@ -279,7 +279,7 @@
   </div>
   
   <!-- Load complete editor stack (Y.js + ProseMirror + y-prosemirror) -->
-  <script src="chrome-extension/lib/prosemirror-bundle.js"></script>
+  <script src="/chrome-extension/lib/prosemirror-bundle.js"></script>
   
   <script>
     // Parse query parameters
@@ -289,6 +289,7 @@
     const path = params.get('path') || 'agent/surf';
     const collabUrl = params.get('collab') || 'ws://localhost:4711';
     const adminUrl = params.get('admin') || 'http://localhost:8787';
+    const backendUrl = params.get('backend') || 'http://localhost:3101';
     
     const docUrl = `${adminUrl}/source/${org}/${repo}/${path}.html`;
     
@@ -303,34 +304,31 @@
       console.log(`[${type}] ${message}`);
     }
     
-    // State
+    // Visible editor (copy of da.live editor)
     let editor = null;
-    let editorYdoc = null;
-    let editorProvider = null;
-    let editorAwareness = null;
+    let ydoc = null;
+    let provider = null;
+    let awareness = null;
     
-    // Initialize
+    // Initialize editor
     async function init() {
       log(`Connecting to: ${docUrl}`, 'info');
       log(`Collab server: ${collabUrl}`, 'info');
       
       // Create Y.js document
-      editorYdoc = new window.Y.Doc();
-      
-      // Connect to WebSocket
-      editorProvider = new window.WebsocketProvider(collabUrl, docUrl, editorYdoc);
-      editorAwareness = editorProvider.awareness;
+      ydoc = new window.Y.Doc();
+      provider = new window.WebsocketProvider(collabUrl, docUrl, ydoc);
+      awareness = provider.awareness;
       
       // Set awareness
-      editorAwareness.setLocalStateField('user', {
+      awareness.setLocalStateField('user', {
         color: '#EF4444',
-        name: 'Test Editor',
-        id: `test-editor-${editorProvider.awareness.clientID}`
+        name: 'Test Page',
+        id: `test-page-${awareness.clientID}`
       });
-      log('Set awareness: Test Editor', 'success');
       
       // Listen for connection status
-      editorProvider.on('status', ({ status }) => {
+      provider.on('status', ({ status }) => {
         const dot = document.getElementById('connection-dot');
         const text = document.getElementById('connection-status');
         if (status === 'connected') {
@@ -345,7 +343,7 @@
       });
       
       // Listen for sync status
-      editorProvider.on('sync', (isSynced) => {
+      provider.on('sync', (isSynced) => {
         const dot = document.getElementById('sync-dot');
         const text = document.getElementById('sync-status');
         if (isSynced) {
@@ -357,10 +355,10 @@
       
       // Wait for sync
       await new Promise((resolve) => {
-        if (editorProvider.synced) {
+        if (provider.synced) {
           resolve();
         } else {
-          editorProvider.on('sync', (isSynced) => {
+          provider.on('sync', (isSynced) => {
             if (isSynced) {
               resolve();
             }
@@ -370,55 +368,49 @@
       
       // Create ProseMirror editor
       const editorDiv = document.getElementById('editor');
-      const yXmlFragment = editorYdoc.getXmlFragment('prosemirror');
-      
-      // Use da.live's schema for 1:1 compatibility
+      const yXmlFragment = ydoc.getXmlFragment('prosemirror');
       const schema = window.prosemirror.getSchema();
-      log('Using da.live schema', 'success');
       
       const state = window.prosemirror.EditorState.create({
         schema,
         plugins: [
           window.yProsemirror.ySyncPlugin(yXmlFragment),
-          window.yProsemirror.yCursorPlugin(editorAwareness),
+          window.yProsemirror.yCursorPlugin(awareness),
           window.yProsemirror.yUndoPlugin(),
         ]
       });
       
       editor = new window.prosemirror.EditorView(editorDiv, {
         state,
-        editable: () => true
+        editable: () => true  // Editable like da.live
       });
       
-      log('ProseMirror editor initialized', 'success');
+      log('✅ Editor initialized', 'success');
       
-      // Wait for sync, then make editable (like da-live does)
-      const handleSynced = (isSynced) => {
-        if (isSynced) {
-          // Find the actual .ProseMirror element and make it editable
-          const pm = editorDiv.querySelector('.ProseMirror');
-          if (pm) {
-            pm.contentEditable = 'true';
-            pm.focus();
-            log('Editor is now editable and focused', 'success');
-          } else {
-            log('ERROR: Could not find .ProseMirror element', 'error');
-          }
-          editorProvider.off('synced', handleSynced);
-        }
-      };
-      editorProvider.on('synced', handleSynced);
-      
-      // Monitor awareness
-      editorAwareness.on('change', () => {
-        const states = editorAwareness.getStates();
-        const userCount = states.size - 1; // Exclude self
+      // Monitor awareness for user count
+      awareness.on('change', () => {
+        const states = awareness.getStates();
+        const userCount = states.size - 1;
         document.getElementById('users-status').textContent = `${userCount} other user(s)`;
       });
     }
     
-    // Find text and position cursor
-    function findAndPositionCursor() {
+    // Call server-side operations
+    async function callOperation(endpoint, data) {
+      try {
+        const response = await fetch(`${backendUrl}/api/operations/${endpoint}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ docUrl, collabUrl, ...data })
+        });
+        return await response.json();
+      } catch (error) {
+        return { success: false, message: error.message };
+      }
+    }
+    
+    // Find text and position cursor (server-side)
+    async function findAndPositionCursor() {
       const searchText = document.getElementById('find-cursor-text').value;
       
       if (!searchText) {
@@ -426,227 +418,55 @@
         return;
       }
       
-      if (!editor) {
-        log('Editor not initialized', 'error');
-        return;
-      }
+      log(`Searching for: "${searchText}"`, 'info');
       
-      const { state } = editor;
-      const { doc } = state;
-      
-      // Walk through document and find the text
-      const findTextInDoc = (doc, text) => {
-        let result = null;
-        
-        doc.descendants((node, pos) => {
-          if (result) return false; // Stop if found
-          
-          if (node.isText && node.text) {
-            const index = node.text.indexOf(text);
-            if (index >= 0) {
-              result = {
-                from: pos + index,
-                to: pos + index + text.length
-              };
-              return false; // Stop searching
-            }
-          }
-        });
-        
-        return result;
-      };
-      
-      const result = findTextInDoc(doc, searchText);
-      if (!result) {
-        log(`Text not found: "${searchText}"`, 'error');
-        return;
-      }
-      
-      const { from, to } = result;
-      
-      try {
-        // Set selection at the found text
-        editor.focus();
-        
-        const TextSelection = state.selection.constructor;
-        const tr = state.tr.setSelection(TextSelection.create(state.doc, from, to));
-        editor.dispatch(tr);
-        
-        log(`Found at position ${from}-${to}: "${searchText}"`, 'success');
-        
-        // Scroll to the selection (if needed)
-        editor.dom.querySelector('.ProseMirror')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      } catch (err) {
-        log(`Error positioning cursor: ${err.message}`, 'error');
-        console.error(err);
-      }
+      const result = await callOperation('position-cursor', { text: searchText });
+      log(result.message, result.success ? 'success' : 'error');
     }
     
-    // Delete current block node at cursor
-    function deleteCurrentNode() {
-      if (!editor) {
-        log('Editor not initialized', 'error');
-        return;
-      }
+    // Delete current block (server-side)
+    async function deleteCurrentNode() {
+      log('Deleting current block...', 'info');
       
-      const { state } = editor;
-      const { from } = state.selection;
-      
-      try {
-        // Resolve the position to get the node
-        const $pos = state.doc.resolve(from);
-        
-        // Find the parent block node (depth 1 is usually the block level)
-        let depth = $pos.depth;
-        let node = null;
-        let nodePos = null;
-        
-        // Walk up to find a block node (paragraph, heading, etc.)
-        while (depth > 0) {
-          const currentNode = $pos.node(depth);
-          if (currentNode.isBlock && currentNode.type.name !== 'doc') {
-            node = currentNode;
-            nodePos = $pos.before(depth);
-            break;
-          }
-          depth--;
-        }
-        
-        if (!node) {
-          log('No block node found at cursor', 'error');
-          return;
-        }
-        
-        // Delete the node
-        const tr = state.tr.delete(nodePos, nodePos + node.nodeSize);
-        editor.dispatch(tr);
-        
-        log(`Deleted ${node.type.name}`, 'success');
-      } catch (err) {
-        log(`Error deleting node: ${err.message}`, 'error');
-        console.error(err);
-      }
+      const result = await callOperation('delete-block', {});
+      log(result.message, result.success ? 'success' : 'error');
     }
     
-    // Insert content at cursor position
+    // Insert content at cursor (server-side)
     async function insertContent() {
       const text = document.getElementById('insert-text').value;
-      const type = document.getElementById('insert-type').value;
+      const nodeType = document.getElementById('insert-type').value;
       
       if (!text) {
         log('Please enter text to insert', 'error');
         return;
       }
       
-      if (!editor) {
-        log('Editor not initialized', 'error');
-        return;
-      }
+      log(`Inserting ${nodeType}: "${text}"`, 'info');
       
-      const { state } = editor;
-      const { schema } = state;
-      const { from } = state.selection;
-      
-      try {
-        // Create the appropriate node based on type
-        let node;
-        
-        if (type === 'paragraph') {
-          node = schema.nodes.paragraph.create(null, schema.text(text));
-        } else if (type.startsWith('heading')) {
-          const level = parseInt(type.replace('heading', ''));
-          node = schema.nodes.heading.create({ level }, schema.text(text));
-        }
-        
-        // Insert the node at the current cursor position
-        const tr = state.tr.insert(from, node);
-        editor.dispatch(tr);
-        
-        log(`Inserted ${type}: "${text}"`, 'success');
-        
-        // Clear input
+      const result = await callOperation('insert-at-cursor', { text, nodeType });
+      if (result.success) {
+        log(result.message, 'success');
         document.getElementById('insert-text').value = '';
-      } catch (err) {
-        log(`Error inserting content: ${err.message}`, 'error');
-        console.error(err);
+      } else {
+        log(result.message, 'error');
       }
     }
     
-    // Test replace operation
+    // Replace text (server-side)
     async function testReplace() {
-      const findHtml = document.getElementById('find-text').value;
-      const replaceHtml = document.getElementById('replace-text').value;
+      const findText = document.getElementById('find-text').value;
+      const replaceText = document.getElementById('replace-text').value;
       
-      if (!findHtml || !replaceHtml) {
+      if (!findText || !replaceText) {
         log('Please enter both find and replace text', 'error');
         return;
       }
       
-      // Strip HTML tags
-      const tempDiv = document.createElement('div');
-      tempDiv.innerHTML = findHtml;
-      const findText = tempDiv.textContent || tempDiv.innerText || '';
+      log(`Replacing: "${findText}" with "${replaceText}"`, 'info');
       
-      tempDiv.innerHTML = replaceHtml;
-      const replaceText = tempDiv.textContent || tempDiv.innerText || '';
-      
-      log(`Searching for: "${findText}"`, 'info');
-      
-      const { state } = editor;
-      const { doc } = state;
-      
-      // Walk through document and find the text
-      const findTextInDoc = (doc, searchText) => {
-        let result = null;
-        
-        doc.descendants((node, pos) => {
-          if (result) return false; // Stop if found
-          
-          if (node.isText && node.text) {
-            const index = node.text.indexOf(searchText);
-            if (index >= 0) {
-              result = {
-                from: pos + index,
-                to: pos + index + searchText.length
-              };
-              return false; // Stop searching
-            }
-          }
-        });
-        
-        return result;
-      };
-      
-      const result = findTextInDoc(doc, findText);
-      if (!result) {
-        log('Text not found in document', 'error');
-        return;
-      }
-      
-      const { from: fromPos, to: toPos } = result;
-      log(`Found at position ${fromPos}-${toPos}`, 'success');
-      
-      // Set selection first (visual feedback)
-      try {
-        editor.focus();
-        
-        const TextSelection = state.selection.constructor;
-        const selectionTr = state.tr.setSelection(TextSelection.create(state.doc, fromPos, toPos));
-        editor.dispatch(selectionTr);
-        
-        // Wait for visual feedback
-        await new Promise(resolve => setTimeout(resolve, 500));
-        
-        // Replace text using current selection
-        const newState = editor.state;
-        const { from, to } = newState.selection;
-        const replaceTr = newState.tr.insertText(replaceText, from, to);
-        editor.dispatch(replaceTr);
-        
-        log('Text replaced successfully!', 'success');
-      } catch (err) {
-        log(`Error: ${err.message}`, 'error');
-      }
+      const result = await callOperation('replace-text', { find: findText, replace: replaceText });
+      log(result.message, result.success ? 'success' : 'error');
     }
     
     // Initialize on load
@@ -658,4 +478,3 @@
   </script>
 </body>
 </html>
-

@@ -7,7 +7,8 @@ export class ClaudeService {
       throw new Error('ANTHROPIC_API_KEY is not set in environment variables');
     }
 
-    this.client = new Anthropic({ apiKey });
+    // dangerouslyAllowBrowser is safe here - we're in Node.js but have JSDOM globals set
+    this.client = new Anthropic({ apiKey, dangerouslyAllowBrowser: true });
     this.model = process.env.CLAUDE_MODEL || 'claude-3-5-sonnet-20241022';
     this.maxTokens = parseInt(process.env.MAX_TOKENS || '4096', 10);
   }
@@ -31,38 +32,37 @@ export class ClaudeService {
       
       // Different instructions based on view type
       if (context.viewType === 'editor') {
-        prompt += `\n\n=== EDITOR MODE ===`;
+        prompt += `\n\n=== EDITOR MODE (Headless Editor Operations) ===`;
         prompt += `\nThe user is currently EDITING the document at path "/${context.path || ''}".`;
-        
-        if (editorContent) {
-          prompt += `\n\n=== CURRENT DOCUMENT CONTENT (PROVIDED) ===`;
-          prompt += `\nThe current editor content has been extracted from the live ProseMirror editor:`;
-          prompt += `\n\`\`\`html\n${editorContent}\n\`\`\``;
-          prompt += `\n\n⚠️ CRITICAL EDITING INSTRUCTIONS ⚠️`;
-          prompt += `\n\nYou MUST follow these rules when editing:`;
-          prompt += `\n1. The content above is already in memory - DO NOT call da_admin_get_source`;
-          prompt += `\n2. When modifying content, ONLY use da_editor_update_content tool`;
-          prompt += `\n3. DO NOT use da_admin_create_source - it's the wrong tool for editor mode`;
-          prompt += `\n4. Always return the COMPLETE modified HTML document`;
-          prompt += `\n5. Keep the structure: <body><header></header><main>...</main><footer></footer></body>`;
-          prompt += `\n\nWorkflow for editing:`;
-          prompt += `\n1. Read and analyze the provided content above`;
-          prompt += `\n2. Make your changes to the HTML in memory`;
-          prompt += `\n3. Call da_editor_update_content with the complete modified HTML`;
-          prompt += `\n\nThe editor will update instantly without API calls or page reloads.`;
-        } else {
-          prompt += `\n\nYour capabilities in Editor Mode:`;
-          prompt += `\n- Read the current document using da_admin_get_source with path="${context.path}" and ext="html" or "json"`;
-          prompt += `\n- Edit and update the document content using da_admin_create_source (this OVERWRITES the file)`;
-          prompt += `\n- Analyze, add, remove, or modify sections within the document`;
-          prompt += `\n- Help with HTML or JSON content formatting`;
-          prompt += `\n\nIMPORTANT: Focus on CONTENT-LEVEL operations within THIS document.`;
-          prompt += `\nWhen the user asks to modify something, ALWAYS:`;
-          prompt += `\n1. Read the current content first (da_admin_get_source)`;
-          prompt += `\n2. Make the requested changes`;
-          prompt += `\n3. Save the modified content back (da_admin_create_source)`;
-          prompt += `\n\nUse path="${context.path}" automatically - never ask for it!`;
-        }
+        prompt += `\n\nYou have access to 4 ATOMIC OPERATIONS that work directly on the live editor:`;
+        prompt += `\n\n1. **positionCursor(text)** - Find and select text`;
+        prompt += `\n   - Use this to navigate to a specific location`;
+        prompt += `\n   - The text will be highlighted in the editor`;
+        prompt += `\n   - Example: positionCursor("Introduction")`;
+        prompt += `\n\n2. **insertAtCursor(text, nodeType)** - Insert new content`;
+        prompt += `\n   - Inserts at current cursor position`;
+        prompt += `\n   - nodeType: paragraph, heading1-6`;
+        prompt += `\n   - Example: insertAtCursor("New section", "heading2")`;
+        prompt += `\n\n3. **deleteBlock()** - Delete current block`;
+        prompt += `\n   - Deletes the paragraph/heading at cursor`;
+        prompt += `\n   - Use positionCursor first to target the right block`;
+        prompt += `\n   - Example: positionCursor("Old text") → deleteBlock()`;
+        prompt += `\n\n4. **replaceText(find, replace)** - Find and replace`;
+        prompt += `\n   - Finds text and replaces it`;
+        prompt += `\n   - Shows selection before replacing`;
+        prompt += `\n   - Example: replaceText("Surfing", "Swimming")`;
+        prompt += `\n\n⚠️ EDITING WORKFLOW ⚠️`;
+        prompt += `\n- Operations execute via Y.js collaboration in real-time`;
+        prompt += `\n- User sees your cursor and selections live`;
+        prompt += `\n- Multiple operations can be chained together`;
+        prompt += `\n- Always explain what you're doing to the user`;
+        prompt += `\n\nEXAMPLE: "Change the title to 'New Title'"`;
+        prompt += `\n→ positionCursor("Old Title")`;
+        prompt += `\n→ replaceText("Old Title", "New Title")`;
+        prompt += `\n\nEXAMPLE: "Add a new section about beaches"`;
+        prompt += `\n→ positionCursor("Conclusion")  // Navigate to where to insert`;
+        prompt += `\n→ insertAtCursor("Beaches", "heading2")`;
+        prompt += `\n→ insertAtCursor("Sandy beaches are popular...", "paragraph")`;
       } else if (context.viewType === 'explorer') {
         prompt += `\n\n=== EXPLORER MODE ===`;
         prompt += `\nThe user is browsing files at the FOLDER level in "${context.path ? '/' + context.path : '/ (root)'}".`;
@@ -88,6 +88,97 @@ export class ClaudeService {
     prompt += `\n- Explain what you're doing when using tools`;
 
     return prompt;
+  }
+
+  /**
+   * Get editor operations tools for headless editor mode
+   * @returns {Array} Editor operations as tools
+   */
+  getEditorOperationsTools() {
+    return [
+      {
+        name: 'positionCursor',
+        description: 'Find text in the document and position the cursor there (with selection). Use this before other operations to navigate to the right location.',
+        input_schema: {
+          type: 'object',
+          properties: {
+            type: {
+              type: 'string',
+              enum: ['positionCursor'],
+              description: 'Operation type'
+            },
+            text: {
+              type: 'string',
+              description: 'Text to find and select in the document'
+            }
+          },
+          required: ['type', 'text']
+        }
+      },
+      {
+        name: 'insertAtCursor',
+        description: 'Insert new content at the current cursor position. Can insert paragraphs or headings.',
+        input_schema: {
+          type: 'object',
+          properties: {
+            type: {
+              type: 'string',
+              enum: ['insertAtCursor'],
+              description: 'Operation type'
+            },
+            text: {
+              type: 'string',
+              description: 'Text content to insert'
+            },
+            nodeType: {
+              type: 'string',
+              enum: ['paragraph', 'heading1', 'heading2', 'heading3', 'heading4', 'heading5', 'heading6'],
+              description: 'Type of node to create',
+              default: 'paragraph'
+            }
+          },
+          required: ['type', 'text']
+        }
+      },
+      {
+        name: 'deleteBlock',
+        description: 'Delete the current block (paragraph, heading, etc.) at the cursor position. Use positionCursor first to navigate to the block you want to delete.',
+        input_schema: {
+          type: 'object',
+          properties: {
+            type: {
+              type: 'string',
+              enum: ['deleteBlock'],
+              description: 'Operation type'
+            }
+          },
+          required: ['type']
+        }
+      },
+      {
+        name: 'replaceText',
+        description: 'Find text and replace it with new text. This will find the first occurrence, select it, and replace it.',
+        input_schema: {
+          type: 'object',
+          properties: {
+            type: {
+              type: 'string',
+              enum: ['replaceText'],
+              description: 'Operation type'
+            },
+            find: {
+              type: 'string',
+              description: 'Text to find'
+            },
+            replace: {
+              type: 'string',
+              description: 'Replacement text'
+            }
+          },
+          required: ['type', 'find', 'replace']
+        }
+      }
+    ];
   }
 
   /**

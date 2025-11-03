@@ -109,15 +109,6 @@ window.addEventListener('message', (event) => {
       });
       pendingRequests.delete(event.data.requestId);
     }
-  } else if (event.data.type === 'DA_OPERATION_RESPONSE') {
-    const sendResponse = pendingRequests.get(event.data.requestId);
-    if (sendResponse) {
-      sendResponse({
-        success: event.data.success,
-        error: event.data.error,
-      });
-      pendingRequests.delete(event.data.requestId);
-    }
   }
 });
 

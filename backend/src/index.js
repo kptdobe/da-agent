@@ -2,7 +2,14 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import { createServer } from 'http';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
 import { chatRouter } from './routes/chat.js';
+import operationsRouter from './routes/operations.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const projectRoot = join(__dirname, '..', '..');
 
 // Load environment variables
 dotenv.config();
@@ -19,6 +26,11 @@ app.use(cors({
     
     // Allow chrome-extension:// origins
     if (origin.startsWith('chrome-extension://')) {
+      return callback(null, true);
+    }
+    
+    // Allow localhost origins
+    if (origin.includes('localhost') || origin.includes('127.0.0.1')) {
       return callback(null, true);
     }
     
@@ -46,6 +58,12 @@ app.use((req, res, next) => {
   next();
 });
 
+// Serve test page and static files
+app.use('/chrome-extension', express.static(join(projectRoot, 'chrome-extension')));
+app.get('/test-prosemirror.html', (req, res) => {
+  res.sendFile(join(projectRoot, 'test-prosemirror.html'));
+});
+
 // Health check endpoint
 app.get('/health', (req, res) => {
   res.json({
@@ -57,6 +75,7 @@ app.get('/health', (req, res) => {
 
 // API routes
 app.use('/api/chat', chatRouter);
+app.use('/api/operations', operationsRouter);
 
 // Error handling middleware
 app.use((err, req, res, next) => {

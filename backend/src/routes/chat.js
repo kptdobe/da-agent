@@ -46,43 +46,89 @@ router.post('/', async (req, res) => {
       // Get service instances (lazy initialization)
       const { claudeService, mcpService } = getServices();
 
-      // Initialize MCP service with context and editor content
-      if (context?.org && context?.repo) {
-        await mcpService.initialize(context, editorContent);
-      }
-
-      // Get tools from MCP service
-      const tools = mcpService.getTools();
+      // Determine if we're in editor mode (use headless editor operations)
+      const isEditorMode = context?.viewType === 'editor';
       
-      // Log tool availability for debugging
-      console.log(`📦 Available tools: ${tools.map(t => t.name).join(', ')}`);
-
-      // Stream response from Claude
-      await claudeService.streamChat(
-        message,
-        context,
-        editorContent, // Pass editor content to Claude
-        tools,
-        {
-          onToken: (token) => {
-            sendEvent('token', { content: token });
-          },
-          onStatus: (status) => {
-            sendEvent('status', { message: status });
-          },
-          onToolCall: async (toolName, toolInput) => {
-            sendEvent('status', { message: `Using tool: ${toolName}` });
-            return await mcpService.executeTool(toolName, toolInput);
-          },
+      if (isEditorMode) {
+        console.log('🤖 Editor mode detected - using headless editor operations');
+        
+        // Use operations-based tools for editor mode
+        const tools = claudeService.getEditorOperationsTools();
+        console.log(`📦 Available operations: ${tools.map(t => t.name).join(', ')}`);
+        
+        // Stream response from Claude with operations
+        const operations = [];
+        
+        await claudeService.streamChat(
+          message,
+          context,
+          editorContent,
+          tools,
+          {
+            onToken: (token) => {
+              sendEvent('token', { content: token });
+            },
+            onStatus: (status) => {
+              sendEvent('status', { message: status });
+            },
+            onToolCall: async (toolName, toolInput) => {
+              sendEvent('status', { message: `Planning: ${toolName}` });
+              // Collect operations instead of executing them
+              operations.push(toolInput);
+              return { success: true, message: 'Operation planned' };
+            },
+          }
+        );
+        
+        // Send operations to side panel for execution
+        if (operations.length > 0) {
+          console.log(`🤖 Sending ${operations.length} operations to side panel`);
+          sendEvent('operations', { operations });
         }
-      );
-      
-      // Check if any content modification was made
-      const shouldRefresh = mcpService.hasModifiedContent();
-      const editorUpdate = mcpService.getEditorUpdate();
+        
+        sendEvent('complete', {});
+        
+      } else {
+        console.log('📂 Explorer mode detected - using MCP tools');
+        
+        // Initialize MCP service with context and editor content
+        if (context?.org && context?.repo) {
+          await mcpService.initialize(context, editorContent);
+        }
 
-      // Send completion event with optional editor update
-      sendEvent('complete', { shouldRefresh, editorUpdate });
+        // Get tools from MCP service
+        const tools = mcpService.getTools();
+        
+        // Log tool availability for debugging
+        console.log(`📦 Available tools: ${tools.map(t => t.name).join(', ')}`);
+
+        // Stream response from Claude
+        await claudeService.streamChat(
+          message,
+          context,
+          editorContent,
+          tools,
+          {
+            onToken: (token) => {
+              sendEvent('token', { content: token });
+            },
+            onStatus: (status) => {
+              sendEvent('status', { message: status });
+            },
+            onToolCall: async (toolName, toolInput) => {
+              sendEvent('status', { message: `Using tool: ${toolName}` });
+              return await mcpService.executeTool(toolName, toolInput);
+            },
+          }
+        );
+        
+        // Check if any content modification was made
+        const shouldRefresh = mcpService.hasModifiedContent();
+        const editorUpdate = mcpService.getEditorUpdate();
+
+        // Send completion event with optional editor update
+        sendEvent('complete', { shouldRefresh, editorUpdate });
+      }
 
     } catch (error) {
       console.error('\n❌ Error processing chat:');

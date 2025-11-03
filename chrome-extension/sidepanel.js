@@ -143,10 +143,13 @@ function saveChatHistoryForTab(tabId) {
   // Get all messages except the welcome message
   const messages = Array.from(chatMessages.children).filter(msg => 
     msg.id !== 'welcomeMessage'
-  ).map(msg => ({
-    role: msg.classList.contains('user') ? 'user' : 'assistant',
-    content: msg.querySelector('.message-content').innerHTML
-  }));
+  ).map(msg => {
+    const contentEl = msg.querySelector('.message-content');
+    return {
+      role: msg.classList.contains('user') ? 'user' : 'assistant',
+      content: contentEl ? contentEl.innerHTML : ''
+    };
+  });
   
   chatHistoryByTab[tabId] = messages;
 }
@@ -241,7 +244,7 @@ async function requestContext() {
   }
 }
 
-function updateContext(context) {
+async function updateContext(context) {
   currentContext = context;
   
   if (context && context.org && context.repo) {
@@ -480,6 +483,12 @@ async function handleSend() {
               updateMessage(messageElement, assistantMessage);
             } else if (data.type === 'status') {
               statusText.textContent = data.message;
+            } else if (data.type === 'operations') {
+              // Execute operations via headless editor
+              if (data.operations && Array.isArray(data.operations)) {
+                setProcessing(true, `Executing ${data.operations.length} operations...`);
+                await executeOperations(data.operations);
+              }
             } else if (data.type === 'complete') {
               // Apply editor update if provided
               if (data.editorUpdate && data.editorUpdate.content) {
@@ -511,6 +520,124 @@ async function handleSend() {
     if (currentTabId) {
       saveChatHistoryForTab(currentTabId);
     }
+  }
+}
+
+/**
+ * Execute operations via backend DA Agent
+ */
+async function executeOperations(operations) {
+  if (!currentContext || !currentContext.org || !currentContext.repo || !currentContext.path) {
+    console.error('🤖 No valid context for operations');
+    showError('Context not ready. Please refresh the page.');
+    return;
+  }
+
+  console.log(`🤖 Executing ${operations.length} operations via DA Agent`);
+  
+  // Build docUrl and collabUrl from context
+  const adminUrl = 'http://localhost:8787';
+  const collabUrl = 'ws://localhost:4711';
+  const docUrl = `${adminUrl}/source/${currentContext.org}/${currentContext.repo}/${currentContext.path}.html`;
+  
+  try {
+    const results = [];
+    
+    // Execute each operation via backend
+    for (const op of operations) {
+      console.log('🤖 Executing operation:', op);
+      let result;
+      
+      switch (op.type) {
+        case 'position-cursor':
+        case 'positionCursor':
+          result = await callBackendOperation('position-cursor', { 
+            docUrl, 
+            collabUrl, 
+            text: op.text || op.params?.text 
+          });
+          break;
+          
+        case 'delete-block':
+        case 'deleteBlock':
+          result = await callBackendOperation('delete-block', { 
+            docUrl, 
+            collabUrl 
+          });
+          break;
+          
+        case 'insert-at-cursor':
+        case 'insertAtCursor':
+          result = await callBackendOperation('insert-at-cursor', { 
+            docUrl, 
+            collabUrl, 
+            text: op.text || op.params?.text,
+            nodeType: op.nodeType || op.params?.nodeType || 'paragraph'
+          });
+          break;
+          
+        case 'replace-text':
+        case 'replaceText':
+          result = await callBackendOperation('replace-text', { 
+            docUrl, 
+            collabUrl, 
+            find: op.find || op.params?.find,
+            replace: op.replace || op.params?.replace
+          });
+          break;
+          
+        default:
+          result = { success: false, message: `Unknown operation type: ${op.type}` };
+      }
+      
+      console.log('🤖 Operation result:', result);
+      results.push(result);
+    }
+    
+    // Log results
+    const successCount = results.filter(r => r.success).length;
+    const failCount = results.filter(r => !r.success).length;
+    
+    console.log(`🤖 Operations complete: ${successCount} succeeded, ${failCount} failed`);
+    
+    // Show summary in status
+    if (failCount > 0) {
+      setProcessing(true, `⚠️ ${successCount}/${operations.length} operations succeeded`);
+      await new Promise(resolve => setTimeout(resolve, 2000));
+    } else {
+      setProcessing(true, `✅ All ${successCount} operations completed`);
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+  } catch (err) {
+    console.error('🤖 Error executing operations:', err);
+    showError(`Failed to execute operations: ${err.message}`);
+  }
+}
+
+/**
+ * Call backend operation API
+ */
+async function callBackendOperation(endpoint, data) {
+  try {
+    console.log(`🤖 Calling ${endpoint} with:`, data);
+    const response = await fetch(`${BACKEND_URL}/api/operations/${endpoint}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`🤖 Backend error (${response.status}):`, errorText);
+      return { success: false, message: `Backend error: ${response.status} - ${errorText}` };
+    }
+    
+    const result = await response.json();
+    console.log(`🤖 Backend response for ${endpoint}:`, result);
+    return result;
+  } catch (error) {
+    console.error(`🤖 Network error calling ${endpoint}:`, error);
+    return { success: false, message: error.message };
   }
 }
 
